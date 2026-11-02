@@ -26,26 +26,57 @@ function updatePlayButton() {
     playBtn.textContent = isPlaying ? '⏸' : '▶';
 }
 
-// 1. Преобразование ссылок Google Drive
-function getDirectDriveLink(url) {
+function getDriveIdFromUrl(url) {
     if (!url) return '';
+
+    const directIdMatch = url.match(/^[A-Za-z0-9_-]{10,}$/);
+    if (directIdMatch) {
+        return directIdMatch[0];
+    }
 
     try {
         const parsed = new URL(url, window.location.href);
-        const queryId = parsed.searchParams.get('id');
-        if (queryId) {
-            return `https://drive.google.com/uc?export=download&id=${queryId}`;
+        const idFromQuery = parsed.searchParams.get('id');
+        if (idFromQuery) {
+            return idFromQuery;
+        }
+
+        const pathMatch = parsed.pathname.match(/\/d\/([A-Za-z0-9_-]{10,})/);
+        if (pathMatch && pathMatch[1]) {
+            return pathMatch[1];
         }
     } catch (error) {
-        // Игнорируем ошибки парсинга и продолжаем с регулярным выражением ниже.
+        // Игнорируем ошибки парсинга и продолжаем ниже
     }
 
-    const match = url.match(/(?:\/file\/d\/|\/d\/)([a-zA-Z0-9_-]{10,})(?:\/|$)/);
-    if (match && match[1]) {
-        return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+    const fallbackMatch = url.match(/(?:\/file\/d\/|\/d\/)([A-Za-z0-9_-]{10,})(?:\/|$)/);
+    if (fallbackMatch && fallbackMatch[1]) {
+        return fallbackMatch[1];
     }
 
-    return url;
+    return '';
+}
+
+function buildDriveDownloadUrl(value) {
+    const driveId = getDriveIdFromUrl(value);
+    if (!driveId) return '';
+    return `https://drive.google.com/uc?export=download&id=${driveId}`;
+}
+
+function resolveTrackUrl(track) {
+    if (!track) return '';
+
+    if (track.url) {
+        const directUrl = buildDriveDownloadUrl(track.url);
+        if (directUrl) return directUrl;
+        return track.url;
+    }
+
+    if (track.id) {
+        return buildDriveDownloadUrl(track.id);
+    }
+
+    return '';
 }
 
 function setEmptyState(message = 'Плейлист пуст') {
@@ -94,7 +125,9 @@ function renderPlaylist() {
     playlistEl.innerHTML = '';
     playlistData.forEach((track, index) => {
         const li = document.createElement('li');
-        li.textContent = `${track.artist || 'Неизвестный исполнитель'} — ${track.title || 'Без названия'}`;
+        const title = track.title || 'Без названия';
+        const artist = track.artist || 'Неизвестный исполнитель';
+        li.textContent = `${artist} — ${title}`;
 
         if (index === currentIndex) {
             li.classList.add('active');
@@ -136,7 +169,7 @@ function loadTrack(index) {
     trackTitle.textContent = track.title || 'Без названия';
     trackArtist.textContent = track.artist || 'Неизвестный исполнитель';
 
-    const directLink = getDirectDriveLink(track.url);
+    const directLink = resolveTrackUrl(track);
     if (directLink) {
         audio.src = directLink;
         audio.load();
@@ -153,11 +186,11 @@ function playTrack() {
         return;
     }
 
-    const directLink = getDirectDriveLink(playlistData[currentIndex]?.url);
+    const directLink = resolveTrackUrl(playlistData[currentIndex]);
     if (!directLink) {
         console.error('Отсутствует рабочая ссылка для текущего трека');
         trackTitle.textContent = 'Ошибка трека';
-        trackArtist.textContent = 'Проверьте ссылку в playlist.json';
+        trackArtist.textContent = 'Проверьте id/ссылку в playlist.json';
         return;
     }
 
@@ -259,7 +292,7 @@ audio.addEventListener('error', () => {
     isPlaying = false;
     updatePlayButton();
     trackTitle.textContent = 'Ошибка воспроизведения';
-    trackArtist.textContent = 'Проверьте ссылку в playlist.json';
+    trackArtist.textContent = 'Проверьте id/ссылку в playlist.json';
 });
 
 // Перемотка при клике на прогресс-бар
