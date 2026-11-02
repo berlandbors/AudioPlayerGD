@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive Audio Player</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="player-container">
+        <div class="track-info">
+            <h2 id="track-title">Загрузка...</h2>
+            <p id="track-artist">Ожидание данных</p>
+        </div>
+
+        <!-- Скрытый системный плеер -->
+        <audio id="audio-element"></audio>
+
+        <div class="progress-area">
+            <div class="progress-bar" id="progress-container">
+                <div class="progress" id="progress"></div>
+            </div>
+            <div class="time-info">
+                <span id="current-time">0:00</span>
+                <span id="total-time">0:00</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="prev-btn" class="control-btn">⏮</button>
+            <button id="play-btn" class="control-btn play-btn">▶</button>
+            <button id="next-btn" class="control-btn">⏭</button>
+        </div>
+
+        <div class="playlist-container">
+            <h3>Плейлист</h3>
+            <ul id="playlist"></ul>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
