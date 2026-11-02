@@ -16,27 +16,75 @@ let playlistData = [];
 let currentIndex = 0;
 let isPlaying = false;
 
+function setButtonsState(enabled) {
+    playBtn.disabled = !enabled;
+    prevBtn.disabled = !enabled;
+    nextBtn.disabled = !enabled;
+}
+
+function updatePlayButton() {
+    playBtn.textContent = isPlaying ? '⏸' : '▶';
+}
+
 // 1. Преобразование ссылок Google Drive
 function getDirectDriveLink(url) {
-    const match = url.match(/\/d\/(.+?)\//);
+    if (!url) return '';
+
+    try {
+        const parsed = new URL(url, window.location.href);
+        const queryId = parsed.searchParams.get('id');
+        if (queryId) {
+            return `https://drive.google.com/uc?export=download&id=${queryId}`;
+        }
+    } catch (error) {
+        // Игнорируем ошибки парсинга и продолжаем с регулярным выражением ниже.
+    }
+
+    const match = url.match(/(?:\/file\/d\/|\/d\/)([a-zA-Z0-9_-]{10,})(?:\/|$)/);
     if (match && match[1]) {
         return `https://drive.google.com/uc?export=download&id=${match[1]}`;
     }
+
     return url;
+}
+
+function setEmptyState(message = 'Плейлист пуст') {
+    trackTitle.textContent = message;
+    trackArtist.textContent = 'Добавьте треки в playlist.json';
+    progress.style.width = '0%';
+    currentTimeEl.textContent = '0:00';
+    totalTimeEl.textContent = '0:00';
+    audio.removeAttribute('src');
+    audio.load();
+    setButtonsState(false);
 }
 
 // 2. Инициализация (загрузка JSON)
 async function initPlayer() {
     try {
-        // Загружаем данные плейлиста
         const response = await fetch('playlist.json');
-        playlistData = await response.json();
-        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const json = await response.json();
+        if (!Array.isArray(json)) {
+            throw new Error('playlist.json должен содержать массив объектов');
+        }
+
+        playlistData = json;
+
+        if (!playlistData.length) {
+            setEmptyState();
+            return;
+        }
+
+        setButtonsState(true);
         renderPlaylist();
         loadTrack(currentIndex);
     } catch (error) {
         console.error('Ошибка загрузки плейлиста:', error);
-        trackTitle.textContent = 'Ошибка загрузки';
+        setEmptyState('Ошибка загрузки');
         trackArtist.textContent = 'Проверьте playlist.json';
     }
 }
@@ -46,14 +94,18 @@ function renderPlaylist() {
     playlistEl.innerHTML = '';
     playlistData.forEach((track, index) => {
         const li = document.createElement('li');
-        li.textContent = `${track.artist} — ${track.title}`;
-        if (index === currentIndex) li.classList.add('active');
-        
+        li.textContent = `${track.artist || 'Неизвестный исполнитель'} — ${track.title || 'Без названия'}`;
+
+        if (index === currentIndex) {
+            li.classList.add('active');
+        }
+
         li.addEventListener('click', () => {
             currentIndex = index;
             loadTrack(currentIndex);
             playTrack();
         });
+
         playlistEl.appendChild(li);
     });
 }
@@ -61,6 +113,7 @@ function renderPlaylist() {
 function updatePlaylistUI() {
     const items = playlistEl.querySelectorAll('li');
     items.forEach(item => item.classList.remove('active'));
+
     if (items[currentIndex]) {
         items[currentIndex].classList.add('active');
     }
@@ -68,73 +121,178 @@ function updatePlaylistUI() {
 
 // 4. Управление треком
 function loadTrack(index) {
-    const track = playlistData[index];
-    trackTitle.textContent = track.title;
-    trackArtist.textContent = track.artist;
-    
-    // Применяем прямую ссылку
-    audio.src = getDirectDriveLink(track.url);
+    if (!playlistData.length) {
+        return;
+    }
+
+    const safeIndex = (index + playlistData.length) % playlistData.length;
+    currentIndex = safeIndex;
+
+    const track = playlistData[currentIndex];
+    if (!track) {
+        return;
+    }
+
+    trackTitle.textContent = track.title || 'Без названия';
+    trackArtist.textContent = track.artist || 'Неизвестный исполнитель';
+
+    const directLink = getDirectDriveLink(track.url);
+    if (directLink) {
+        audio.src = directLink;
+        audio.load();
+    } else {
+        audio.removeAttribute('src');
+        audio.load();
+    }
+
     updatePlaylistUI();
 }
 
 function playTrack() {
+    if (!playlistData.length) {
+        return;
+    }
+
+    const directLink = getDirectDriveLink(playlistData[currentIndex]?.url);
+    if (!directLink) {
+        console.error('Отсутствует рабочая ссылка для текущего трека');
+        trackTitle.textContent = 'Ошибка трека';
+        trackArtist.textContent = 'Проверьте ссылку в playlist.json';
+        return;
+    }
+
+    if (audio.src !== directLink) {
+        audio.src = directLink;
+        audio.load();
+    }
+
     isPlaying = true;
-    playBtn.textContent = '⏸';
-    audio.play();
+    updatePlayButton();
+    audio.play().catch((error) => {
+        console.error('Ошибка воспроизведения:', error);
+        isPlaying = false;
+        updatePlayButton();
+        trackTitle.textContent = 'Ошибка воспроизведения';
+        trackArtist.textContent = 'Проверьте доступ к файлу';
+    });
 }
 
 function pauseTrack() {
     isPlaying = false;
-    playBtn.textContent = '▶';
+    updatePlayButton();
     audio.pause();
 }
 
 function prevTrack() {
+    if (!playlistData.length) {
+        return;
+    }
+
     currentIndex = (currentIndex - 1 + playlistData.length) % playlistData.length;
     loadTrack(currentIndex);
     playTrack();
 }
 
 function nextTrack() {
+    if (!playlistData.length) {
+        return;
+    }
+
     currentIndex = (currentIndex + 1) % playlistData.length;
     loadTrack(currentIndex);
     playTrack();
 }
 
 // 5. Обработчики событий кнопок
-playBtn.addEventListener('click', () => isPlaying ? pauseTrack() : playTrack());
+playBtn.addEventListener('click', () => {
+    if (!playlistData.length) {
+        return;
+    }
+
+    isPlaying ? pauseTrack() : playTrack();
+});
 prevBtn.addEventListener('click', prevTrack);
 nextBtn.addEventListener('click', nextTrack);
 
 // 6. Работа с таймером и прогресс-баром
 function formatTime(seconds) {
-    const min = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
+    if (!Number.isFinite(seconds) || seconds < 0) {
+        return '0:00';
+    }
+
+    const safeSeconds = Math.floor(seconds);
+    const min = Math.floor(safeSeconds / 60);
+    const sec = safeSeconds % 60;
     return `${min}:${sec < 10 ? '0' + sec : sec}`;
 }
 
-audio.addEventListener('timeupdate', () => {
+function updateProgressBar() {
     const { currentTime, duration } = audio;
-    if (duration) {
-        const progressPercent = (currentTime / duration) * 100;
-        progress.style.width = `${progressPercent}%`;
+    if (!Number.isFinite(duration) || duration <= 0) {
+        progress.style.width = '0%';
         currentTimeEl.textContent = formatTime(currentTime);
-        totalTimeEl.textContent = formatTime(duration);
+        totalTimeEl.textContent = '0:00';
+        return;
     }
+
+    const progressPercent = (currentTime / duration) * 100;
+    progress.style.width = `${Math.min(progressPercent, 100)}%`;
+    currentTimeEl.textContent = formatTime(currentTime);
+    totalTimeEl.textContent = formatTime(duration);
+}
+
+audio.addEventListener('timeupdate', updateProgressBar);
+audio.addEventListener('loadedmetadata', updateProgressBar);
+
+audio.addEventListener('play', () => {
+    isPlaying = true;
+    updatePlayButton();
+});
+
+audio.addEventListener('pause', () => {
+    isPlaying = false;
+    updatePlayButton();
+});
+
+audio.addEventListener('error', () => {
+    console.error('Ошибка загрузки аудиофайла:', audio.src);
+    isPlaying = false;
+    updatePlayButton();
+    trackTitle.textContent = 'Ошибка воспроизведения';
+    trackArtist.textContent = 'Проверьте ссылку в playlist.json';
 });
 
 // Перемотка при клике на прогресс-бар
 progressContainer.addEventListener('click', (e) => {
-    const width = progressContainer.clientWidth;
-    const clickX = e.offsetX;
+    const rect = progressContainer.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const width = rect.width;
     const duration = audio.duration;
-    if (duration) {
-        audio.currentTime = (clickX / width) * duration;
+
+    if (!Number.isFinite(duration) || duration <= 0 || width === 0) {
+        return;
     }
+
+    audio.currentTime = (clickX / width) * duration;
 });
 
 // Автоматическое переключение на следующий трек
-audio.addEventListener('ended', nextTrack);
+audio.addEventListener('ended', () => {
+    if (!playlistData.length) {
+        return;
+    }
+
+    if (playlistData.length > 1) {
+        nextTrack();
+    } else {
+        pauseTrack();
+        audio.currentTime = 0;
+        updateProgressBar();
+    }
+});
+
+setButtonsState(false);
+updatePlayButton();
 
 // Запуск инициализации
 initPlayer();
